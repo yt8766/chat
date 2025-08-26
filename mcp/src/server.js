@@ -113,16 +113,29 @@
 
 // const transport = new StdioServerTransport();
 // await server.connect(transport);
-
+// 加载环境变量
+// require("dotenv").config();
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   ReadResourceRequestSchema,
   ListResourceTemplatesRequestSchema,
   ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { readResourse } from "./utils/readResourse.js";
+import {
+  readResourse,
+  setCache,
+  sum,
+  getCache,
+  getWeather,
+  createFile,
+} from "./utils/index.js";
 
+setCache("sum", sum);
+setCache("getWeather", getWeather);
+setCache("createFile", createFile);
 const server = new Server(
   {
     name: "resources-server",
@@ -132,9 +145,72 @@ const server = new Server(
   {
     capabilities: {
       resources: {},
+      tools: {},
+      resourcesTemplates: {},
     },
   }
 );
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "sum",
+        description: "得到两个数的和",
+        inputSchema: {
+          type: "object",
+          properties: {
+            a: {
+              type: "number",
+              description: "第一个数",
+            },
+            b: {
+              type: "number",
+              description: "第二个数",
+            },
+          },
+          required: ["a", "b"],
+        },
+      },
+      {
+        name: "createFile",
+        description: "在指定目录下创建一个文件",
+        inputSchema: {
+          type: "object",
+          properties: {
+            filename: {
+              type: "string",
+              description: "文件名",
+            },
+            content: {
+              type: "string",
+              description: "文件内容",
+            },
+          },
+          required: ["filename", "content"],
+        },
+      },
+      {
+        name: "getWeather",
+        description: "获取天气信息",
+        inputSchema: {
+          type: "object",
+          properties: {
+            city: {
+              type: "string",
+              description: "城市",
+            },
+            date: {
+              type: "string",
+              description: "日期",
+            },
+          },
+          required: ["city", "date"],
+        },
+      },
+    ],
+  };
+});
 
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
   return {
@@ -155,21 +231,16 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
   };
 });
 
-server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-  return {
-    resourceTemplates: [
-      {
-        uriTemplate: "code://file/{filename}",
-        name: "代码文件",
-        description: "访问code目录下的JS文件的内容",
-        mimeType: "text/javascript",
-      },
-    ],
-  };
-});
+server.setRequestHandler(
+  ListResourceTemplatesRequestSchema,
+  async (request) => {
+    return { resourceTemplates: [] };
+  }
+);
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
+  console.error(request, "readResource");
 
   if (uri === "bananaphone://info") {
     const content = await readResourse("src/assets", "bananaphone.txt", false);
@@ -222,6 +293,17 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
 
   throw new Error(`未知的资源URI: ${uri}`);
+});
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+  const fn = getCache(name);
+
+  const result = await fn(args);
+  console.error(result);
+  return {
+    content: [{ type: "text", text: result }],
+  };
 });
 
 const transport = new StdioServerTransport();
